@@ -1,0 +1,42 @@
+gios:
+  topology:
+    retention-period:
+      amount: 1
+      time-unit: hours
+    window-size:
+      amount: 72
+      time-unit: hours
+  installation-topic: gios.installation
+  measurement-topic: gios.measurement
+  gios-measurement-store: gios-measurement-store
+
+quarkus:
+  kafka-streams:
+    bootstrap-servers: localhost:9092
+
+
+kafka-streams:
+  cache:
+    max:
+      bytes:
+        byfferring: 10240
+  commit:
+    interval:
+      ms: 1000
+  metadata:
+    max:
+      age:
+        ms: 500
+  auto:
+    offset:
+      reset:
+        earliest
+  metrics:
+    recording:
+      level: INFO
+  session:
+    timeout:
+      ms: 250
+  heartbeat:
+    interval:
+      ms: 200
