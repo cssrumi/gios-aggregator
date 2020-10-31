@@ -21,6 +21,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.awaitility.core.ConditionTimeoutException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -35,6 +36,7 @@ import pl.airq.aggregator.integration.serialization.TSKeySerializer;
 import pl.airq.common.domain.gios.Installation;
 import pl.airq.common.process.EventParser;
 import pl.airq.common.process.ctx.gios.aggragation.GiosMeasurementCreatedEvent;
+import pl.airq.common.process.ctx.gios.aggragation.GiosMeasurementDeletedEvent;
 import pl.airq.common.process.ctx.gios.aggragation.GiosMeasurementEventPayload;
 import pl.airq.common.process.ctx.gios.aggragation.GiosMeasurementUpdatedEvent;
 import pl.airq.common.process.ctx.gios.installation.GiosInstallationCreatedEvent;
@@ -45,6 +47,7 @@ import pl.airq.common.process.event.AirqEvent;
 import pl.airq.common.store.key.TSKey;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -88,21 +91,20 @@ class IntegrationTest {
 
     @Test
     void whenGiosInstallationCreatedArrived_expectGiosMeasurementCreatedProduced() {
-        String station = "STATION";
+        String station = StationFactory.next();
         Installation installation = InstallationFactory.create(station, Field.PM10);
         GiosInstallationEventPayload payload = new GiosInstallationEventPayload(installation);
-        GiosInstallationCreatedEvent event = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload);
-        final TSKey key = sendEvent(event);
+        GiosInstallationCreatedEvent iEvent = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload);
+        final TSKey key = sendEvent(iEvent);
 
-        await().atMost(Duration.ofSeconds(5)).until(() -> events.containsKey(key));
-        AirqEvent<GiosMeasurementEventPayload> airqEvent = events.get(key);
+        final AirqEvent<GiosMeasurementEventPayload> event = awaitForLatestEvent(key, Duration.ofSeconds(0));
 
-        verifyGiosMeasurementEvent(airqEvent, GiosMeasurementCreatedEvent.class, key, station, installation.value, null);
+        verifyGiosMeasurementEvent(event, GiosMeasurementCreatedEvent.class, key, station, installation.value, null);
     }
 
     @Test
     void whenGiosInstallationCreatedAndUpdatedArrived_expectGiosMeasurementUpdatedProduced() {
-        String station = "STATION2";
+        String station = StationFactory.next();
         Installation installation1 = InstallationFactory.create(station, Field.PM10);
         Installation installation2 = InstallationFactory.create(station, Field.PM10);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
@@ -112,8 +114,7 @@ class IntegrationTest {
         final TSKey key1 = sendEvent(event1);
         final TSKey key2 = sendEvent(event2);
 
-        await().atMost(Duration.ofSeconds(5)).until(() -> events.containsKey(key2));
-        final AirqEvent<GiosMeasurementEventPayload> event = events.get(key2);
+        final AirqEvent<GiosMeasurementEventPayload> event = awaitForLatestEvent(key2, Duration.ofSeconds(2));
 
         assertThat(key1).isEqualTo(key2);
         verifyGiosMeasurementEvent(event, GiosMeasurementUpdatedEvent.class, key2, station, installation2.value, null);
@@ -121,7 +122,7 @@ class IntegrationTest {
 
     @Test
     void whenGiosInstallationCreatedForBothPm10AndPm25Arrived_expectGiosMeasurementUpdatedProduced() {
-        String station = "STATION2";
+        String station = StationFactory.next();
         Installation installation1 = InstallationFactory.create(station, Field.PM10);
         Installation installation2 = InstallationFactory.create(station, Field.PM25);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
@@ -131,8 +132,7 @@ class IntegrationTest {
         final TSKey key1 = sendEvent(event1);
         final TSKey key2 = sendEvent(event2);
 
-        await().atMost(Duration.ofSeconds(5)).until(() -> events.containsKey(key2));
-        final AirqEvent<GiosMeasurementEventPayload> event = events.get(key2);
+        final AirqEvent<GiosMeasurementEventPayload> event = awaitForLatestEvent(key2, Duration.ofSeconds(2));
 
         assertThat(key1).isEqualTo(key2);
         verifyGiosMeasurementEvent(event, GiosMeasurementUpdatedEvent.class, key2, station, installation1.value, installation2.value);
@@ -140,9 +140,9 @@ class IntegrationTest {
 
     @Test
     void whenGiosInstallationCreatedAndDeletedArrived_expectGiosMeasurementDeletedProduced() {
-        String station = "STATION2";
+        String station = StationFactory.next();
         Installation installation1 = InstallationFactory.create(station, Field.PM10);
-        Installation installation2 = InstallationFactory.create(station, Field.PM10, null);
+        Installation installation2 = InstallationFactory.create(station, Field.PM10, (Float)null);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
         GiosInstallationEventPayload payload2 = new GiosInstallationEventPayload(installation2);
         GiosInstallationCreatedEvent event1 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload1);
@@ -150,11 +150,55 @@ class IntegrationTest {
         final TSKey key1 = sendEvent(event1);
         final TSKey key2 = sendEvent(event2);
 
-        await().atMost(Duration.ofSeconds(5)).until(() -> events.containsKey(key2));
-        final AirqEvent<GiosMeasurementEventPayload> event = events.get(key2);
+        final AirqEvent<GiosMeasurementEventPayload> event = awaitForLatestEvent(key2, Duration.ofSeconds(2));
 
         assertThat(key1).isEqualTo(key2);
-        verifyGiosMeasurementEvent(event, GiosInstallationDeletedEvent.class, key2, station, installation1.value, null);
+        verifyGiosMeasurementEvent(event, GiosMeasurementDeletedEvent.class, key2, station, installation1.value, null);
+    }
+
+    @Test
+    void whenGiosInstallationCreatedForBothPm10AndPm25AndDeletedPm10Arrived_expectGiosMeasurementUpdatedProduced() {
+        String station = StationFactory.next();
+        Installation installation1 = InstallationFactory.create(station, Field.PM10);
+        Installation installation2 = InstallationFactory.create(station, Field.PM25);
+        Installation installation3 = InstallationFactory.create(station, Field.PM10, (Float)null);
+        GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
+        GiosInstallationEventPayload payload2 = new GiosInstallationEventPayload(installation2);
+        GiosInstallationEventPayload payload3 = new GiosInstallationEventPayload(installation3);
+        GiosInstallationCreatedEvent event1 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload1);
+        GiosInstallationCreatedEvent event2 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload2);
+        GiosInstallationDeletedEvent event3 = new GiosInstallationDeletedEvent(OffsetDateTime.now(), payload3);
+        final TSKey key1 = sendEvent(event1);
+        final TSKey key2 = sendEvent(event2);
+        final TSKey key3 = sendEvent(event3);
+
+        final AirqEvent<GiosMeasurementEventPayload> event = awaitForLatestEvent(key2, Duration.ofSeconds(2));
+
+        assertThat(key1).isEqualTo(key2).isEqualTo(key3);
+        verifyGiosMeasurementEvent(event, GiosMeasurementUpdatedEvent.class, key3, station, null, installation2.value);
+    }
+
+    @Test
+    void whenGiosInstallationCreatedWithKeyOlderThanNowMinusWindowArrived_expectNothingProduced() {
+        String station = StationFactory.next();
+        final Duration windowDuration = Duration.of(properties.getTopology().getWindowSize().getAmount(), properties.getTopology().getWindowSize().getTimeUnit());
+        final OffsetDateTime timestamp = OffsetDateTime.now().minus(windowDuration).minusMinutes(1);
+        Installation installation1 = InstallationFactory.create(station, Field.PM10, timestamp);
+        GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
+        GiosInstallationCreatedEvent event1 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload1);
+        final TSKey key1 = sendEvent(event1);
+
+        assertThatThrownBy(() -> awaitForLatestEvent(key1, Duration.ofSeconds(0)))
+                .isInstanceOf(ConditionTimeoutException.class);
+    }
+
+    private AirqEvent<GiosMeasurementEventPayload> awaitForLatestEvent(TSKey key, Duration maxAwait) {
+        await().atMost(Duration.ofSeconds(5)).until(() -> events.containsKey(key));
+        try {
+            Thread.sleep(maxAwait.toMillis());
+        } catch (InterruptedException ignore) {
+        }
+        return events.get(key);
     }
 
     private void verifyGiosMeasurementEvent(AirqEvent<GiosMeasurementEventPayload> event,

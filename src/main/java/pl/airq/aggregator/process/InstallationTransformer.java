@@ -43,6 +43,9 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
 
     @Override
     public AirqEvent<GiosMeasurementEventPayload> transform(TSKey key, AirqEvent<GiosInstallationEventPayload> value) {
+        if (OffsetDateTime.now().minus(windowSize).isAfter(key.timestamp())) {
+            return null;
+        }
         final Installation installation = value.payload.installation;
         if (value instanceof GiosInstallationCreatedEvent) {
             return createHandler(key, installation);

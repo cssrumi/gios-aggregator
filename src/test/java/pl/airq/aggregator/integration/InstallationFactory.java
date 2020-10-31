@@ -15,18 +15,22 @@ public class InstallationFactory {
     public static final String DEFAULT_STATION = "Station";
 
     public static Installation create(String station, Field field, Float value) {
-        return installation(station, field, value);
+        return installation(station, field, value, OffsetDateTime.now());
+    }
+
+    public static Installation create(String station, Field field, OffsetDateTime timestamp) {
+        return installation(station, field, getNextValue(), timestamp);
     }
 
     public static Installation create(String station, Field field) {
-        return installation(station, field, getNextValue());
+        return installation(station, field, getNextValue(), OffsetDateTime.now());
     }
 
     public static Installation create(Field field) {
-        return installation(DEFAULT_STATION, field, getNextValue());
+        return installation(DEFAULT_STATION, field, getNextValue(), OffsetDateTime.now());
     }
 
-    private static Installation installation(String station, Field field, Float value) {
+    private static Installation installation(String station, Field field, Float value, OffsetDateTime timestamp) {
         final Constructor<?>[] constructors = Installation.class.getDeclaredConstructors();
         for (Constructor<?> constructor : constructors) {
             if (Modifier.isPrivate(constructor.getModifiers())) {
@@ -42,7 +46,7 @@ public class InstallationFactory {
                 return (Installation) constructor.newInstance(
                         Long.valueOf(RandomStringUtils.randomNumeric(5)),
                         station,
-                        OffsetDateTime.now(),
+                        timestamp,
                         value,
                         Float.valueOf(1.0f),
                         Float.valueOf(1.0f),
