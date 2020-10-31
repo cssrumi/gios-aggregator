@@ -1,9 +1,15 @@
 package pl.airq.aggregator.process;
 
+import com.google.common.collect.Iterators;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.NoSuchElementException;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.kstream.ValueTransformerWithKey;
 import org.apache.kafka.streams.processor.ProcessorContext;
-import org.apache.kafka.streams.state.KeyValueStore;
+import org.apache.kafka.streams.state.WindowStore;
+import org.apache.kafka.streams.state.WindowStoreIterator;
 import pl.airq.common.domain.gios.GiosMeasurement;
 import pl.airq.common.domain.gios.Installation;
 import pl.airq.common.process.ctx.gios.aggragation.GiosMeasurementCreatedEvent;
@@ -21,16 +27,18 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
         AirqEvent<GiosInstallationEventPayload>, AirqEvent<GiosMeasurementEventPayload>> {
 
     private final String giosMeasurementStore;
-    private KeyValueStore<TSKey, GiosMeasurement> stateStore;
+    private final Duration windowSize;
+    private WindowStore<TSKey, GiosMeasurement> stateStore;
 
-    public InstallationTransformer(String giosMeasurementStore) {
+    public InstallationTransformer(String giosMeasurementStore, Duration windowSize) {
         this.giosMeasurementStore = giosMeasurementStore;
+        this.windowSize = windowSize;
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public void init(ProcessorContext context) {
-        this.stateStore = (KeyValueStore<TSKey, GiosMeasurement>) context.getStateStore(giosMeasurementStore);
+        this.stateStore = (WindowStore<TSKey, GiosMeasurement>) context.getStateStore(giosMeasurementStore);
     }
 
     @Override
@@ -53,7 +61,7 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
     }
 
     private AirqEvent<GiosMeasurementEventPayload> createHandler(TSKey key, Installation installation) {
-        final GiosMeasurement storeValue = stateStore.get(key);
+        final GiosMeasurement storeValue = findLast(key);
         if (storeValue == null) {
             final GiosMeasurement newValue = GiosMeasurement.from(installation);
             stateStore.put(key, newValue);
@@ -70,8 +78,32 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
     }
 
     private AirqEvent<GiosMeasurementEventPayload> deleteHandler(TSKey key, Installation installation) {
-        final GiosMeasurement deleted = stateStore.delete(key);
-        return new GiosMeasurementDeletedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(deleted));
+        final GiosMeasurement last = findLast(key);
+        if (last == null) {
+            return null;
+        }
+
+        final GiosMeasurement updated = last.remove(installation);
+        if (updated.pm10 == null && updated.pm25 == null) {
+            stateStore.put(key, null);
+            return new GiosMeasurementDeletedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(last));
+        }
+
+        stateStore.put(key, updated);
+        return new GiosMeasurementUpdatedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(updated));
     }
 
+    private GiosMeasurement findLast(TSKey key) {
+        Instant now = Instant.now();
+        Instant from = now.minus(windowSize);
+        final WindowStoreIterator<GiosMeasurement> fetch = stateStore.fetch(key, from, now);
+        final KeyValue<Long, GiosMeasurement> last;
+        try {
+             last = Iterators.getLast(fetch);
+        } catch (NoSuchElementException ignore) {
+            return null;
+        }
+
+        return last != null ? last.value : null;
+    }
 }

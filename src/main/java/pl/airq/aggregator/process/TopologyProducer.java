@@ -2,6 +2,7 @@ package pl.airq.aggregator.process;
 
 import io.quarkus.kafka.client.serialization.ObjectMapperSerde;
 import java.time.Duration;
+import java.util.Objects;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Produces;
 import javax.inject.Inject;
@@ -59,8 +60,12 @@ public class TopologyProducer {
         builder.addStateStore(Stores.windowStoreBuilder(storeSupplier, keySerde, storeValueSerde));
 
         builder.table(installationTopic, Consumed.with(keySerde, installationEventSerde))
-               .transformValues(() -> new InstallationTransformer(giosMeasurementStore), giosMeasurementStore)
+               .transformValues(
+                       () -> new InstallationTransformer(giosMeasurementStore, retentionPeriod),
+                       giosMeasurementStore
+               )
                .toStream()
+               .filter((key, value) -> Objects.nonNull(value))
                .to(measurementTopic, Produced.with(keySerde, measurementEventSerde));
 
         return builder.build();
