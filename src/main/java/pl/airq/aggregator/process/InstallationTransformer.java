@@ -50,6 +50,7 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
             LOGGER.warn("Key timestamp is older than time window. Key: {}, Event: {}", key.value(), value.eventType());
             return null;
         }
+        LOGGER.info("Handling: {} {}", key.value(), value.eventType());
         final Installation installation = value.payload.installation;
         if (value instanceof GiosInstallationCreatedEvent) {
             return createHandler(key, installation);
@@ -76,6 +77,10 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
         }
 
         final GiosMeasurement newValue = storeValue.merge(installation);
+        if (storeValue.equals(newValue)) {
+            return null;
+        }
+
         stateStore.put(key, newValue, getTimestamp(key));
         return new GiosMeasurementUpdatedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(newValue));
     }

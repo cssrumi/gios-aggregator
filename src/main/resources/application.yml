@@ -14,7 +14,7 @@ quarkus:
   application:
     name: gios-aggregator
   kafka-streams:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: 10.1.1.51:9092
     topics:
       - gios.installation
       - gios.measurement
@@ -41,6 +41,18 @@ kafka-streams:
   heartbeat:
     interval:
       ms: 200
+  default:
+    production:
+      exception:
+        handler: pl.airq.aggregator.serde.ProductionErrorHandler
+    deserialization:
+      exception:
+        handler: pl.airq.aggregator.serde.DeserializationErrorHandler
+
+"%dev":
+  quarkus:
+    kafka-streams:
+      bootstrap-servers: localhost:9092
 
 "%test":
   gios:
