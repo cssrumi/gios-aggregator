@@ -10,6 +10,8 @@ import org.apache.kafka.streams.kstream.ValueTransformerWithKey;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.streams.state.WindowStoreIterator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import pl.airq.common.domain.gios.GiosMeasurement;
 import pl.airq.common.domain.gios.Installation;
 import pl.airq.common.process.ctx.gios.aggragation.GiosMeasurementCreatedEvent;
@@ -26,6 +28,7 @@ import pl.airq.common.store.key.TSKey;
 public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
         AirqEvent<GiosInstallationEventPayload>, AirqEvent<GiosMeasurementEventPayload>> {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(InstallationTransformer.class);
     private final String giosMeasurementStore;
     private final Duration windowSize;
     private WindowStore<TSKey, GiosMeasurement> stateStore;
@@ -44,6 +47,7 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
     @Override
     public AirqEvent<GiosMeasurementEventPayload> transform(TSKey key, AirqEvent<GiosInstallationEventPayload> value) {
         if (OffsetDateTime.now().minus(windowSize).isAfter(key.timestamp())) {
+            LOGGER.warn("Key timestamp is older than time window. Key: {}, Event: {}", key.value(), value.eventType());
             return null;
         }
         final Installation installation = value.payload.installation;
@@ -67,12 +71,12 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
         final GiosMeasurement storeValue = findLast(key);
         if (storeValue == null) {
             final GiosMeasurement newValue = GiosMeasurement.from(installation);
-            stateStore.put(key, newValue);
+            stateStore.put(key, newValue, getTimestamp(key));
             return new GiosMeasurementCreatedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(newValue));
         }
 
         final GiosMeasurement newValue = storeValue.merge(installation);
-        stateStore.put(key, newValue);
+        stateStore.put(key, newValue, getTimestamp(key));
         return new GiosMeasurementUpdatedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(newValue));
     }
 
@@ -88,11 +92,11 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
 
         final GiosMeasurement updated = last.remove(installation);
         if (updated.pm10 == null && updated.pm25 == null) {
-            stateStore.put(key, null);
+            stateStore.put(key, null, getTimestamp(key));
             return new GiosMeasurementDeletedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(last));
         }
 
-        stateStore.put(key, updated);
+        stateStore.put(key, updated, getTimestamp(key));
         return new GiosMeasurementUpdatedEvent(OffsetDateTime.now(), new GiosMeasurementEventPayload(updated));
     }
 
@@ -102,11 +106,15 @@ public class InstallationTransformer implements ValueTransformerWithKey<TSKey,
         final WindowStoreIterator<GiosMeasurement> fetch = stateStore.fetch(key, from, now);
         final KeyValue<Long, GiosMeasurement> last;
         try {
-             last = Iterators.getLast(fetch);
+            last = Iterators.getLast(fetch);
         } catch (NoSuchElementException ignore) {
             return null;
         }
 
         return last != null ? last.value : null;
+    }
+
+    private long getTimestamp(TSKey key) {
+        return key.timestamp().toInstant().toEpochMilli();
     }
 }

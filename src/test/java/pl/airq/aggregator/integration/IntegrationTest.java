@@ -9,11 +9,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import javax.enterprise.context.Dependent;
 import javax.enterprise.inject.Produces;
 import javax.inject.Inject;
@@ -55,7 +58,8 @@ import static org.awaitility.Awaitility.await;
 @QuarkusTest
 class IntegrationTest {
 
-    private final Map<TSKey, AirqEvent<GiosMeasurementEventPayload>> events = new ConcurrentHashMap<>();
+    private final Map<TSKey, AirqEvent<GiosMeasurementEventPayload>> eventsMap = new ConcurrentHashMap<>();
+    private final List<AirqEvent<GiosMeasurementEventPayload>> eventsList = new CopyOnWriteArrayList<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean shouldConsume = new AtomicBoolean(true);
 
@@ -73,7 +77,10 @@ class IntegrationTest {
             while (shouldConsume.get()) {
                 consumer.poll(Duration.ofMillis(100))
                         .records(properties.getMeasurementTopic())
-                        .forEach(record -> events.put(record.key(), record.value()));
+                        .forEach(record -> {
+                            eventsMap.put(record.key(), record.value());
+                            eventsList.add(record.value());
+                        });
             }
         });
     }
@@ -86,7 +93,8 @@ class IntegrationTest {
 
     @BeforeEach
     void clearEvents() {
-        events.clear();
+        eventsMap.clear();
+        eventsList.clear();
     }
 
     @Test
@@ -105,8 +113,9 @@ class IntegrationTest {
     @Test
     void whenGiosInstallationCreatedAndUpdatedArrived_expectGiosMeasurementUpdatedProduced() {
         String station = StationFactory.next();
-        Installation installation1 = InstallationFactory.create(station, Field.PM10);
-        Installation installation2 = InstallationFactory.create(station, Field.PM10);
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        Installation installation1 = InstallationFactory.create(station, Field.PM10, timestamp);
+        Installation installation2 = InstallationFactory.create(station, Field.PM10, timestamp);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
         GiosInstallationEventPayload payload2 = new GiosInstallationEventPayload(installation2);
         GiosInstallationCreatedEvent event1 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload1);
@@ -123,8 +132,9 @@ class IntegrationTest {
     @Test
     void whenGiosInstallationCreatedForBothPm10AndPm25Arrived_expectGiosMeasurementUpdatedProduced() {
         String station = StationFactory.next();
-        Installation installation1 = InstallationFactory.create(station, Field.PM10);
-        Installation installation2 = InstallationFactory.create(station, Field.PM25);
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        Installation installation1 = InstallationFactory.create(station, Field.PM10, timestamp);
+        Installation installation2 = InstallationFactory.create(station, Field.PM25, timestamp);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
         GiosInstallationEventPayload payload2 = new GiosInstallationEventPayload(installation2);
         GiosInstallationCreatedEvent event1 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload1);
@@ -141,8 +151,9 @@ class IntegrationTest {
     @Test
     void whenGiosInstallationCreatedAndDeletedArrived_expectGiosMeasurementDeletedProduced() {
         String station = StationFactory.next();
-        Installation installation1 = InstallationFactory.create(station, Field.PM10);
-        Installation installation2 = InstallationFactory.create(station, Field.PM10, (Float)null);
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        Installation installation1 = InstallationFactory.create(station, Field.PM10, timestamp);
+        Installation installation2 = InstallationFactory.create(station, Field.PM10, timestamp);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
         GiosInstallationEventPayload payload2 = new GiosInstallationEventPayload(installation2);
         GiosInstallationCreatedEvent event1 = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload1);
@@ -159,9 +170,10 @@ class IntegrationTest {
     @Test
     void whenGiosInstallationCreatedForBothPm10AndPm25AndDeletedPm10Arrived_expectGiosMeasurementUpdatedProduced() {
         String station = StationFactory.next();
-        Installation installation1 = InstallationFactory.create(station, Field.PM10);
-        Installation installation2 = InstallationFactory.create(station, Field.PM25);
-        Installation installation3 = InstallationFactory.create(station, Field.PM10, (Float)null);
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        Installation installation1 = InstallationFactory.create(station, Field.PM10, timestamp);
+        Installation installation2 = InstallationFactory.create(station, Field.PM25, timestamp);
+        Installation installation3 = InstallationFactory.create(station, Field.PM10, timestamp);
         GiosInstallationEventPayload payload1 = new GiosInstallationEventPayload(installation1);
         GiosInstallationEventPayload payload2 = new GiosInstallationEventPayload(installation2);
         GiosInstallationEventPayload payload3 = new GiosInstallationEventPayload(installation3);
@@ -192,13 +204,42 @@ class IntegrationTest {
                 .isInstanceOf(ConditionTimeoutException.class);
     }
 
+    @Test
+    void whenGiosInstallationCreatedSendEvery1SecondFor30Seconds_expectOnly1CratedAndHoppingWindow() {
+        String station = StationFactory.next();
+        OffsetDateTime timestamp = OffsetDateTime.now();
+        IntStream.range(0, 12).boxed().forEach(__ -> {
+            Installation installation = InstallationFactory.create(station, Field.PM10, timestamp);
+            GiosInstallationEventPayload payload = new GiosInstallationEventPayload(installation);
+            GiosInstallationCreatedEvent event = new GiosInstallationCreatedEvent(OffsetDateTime.now(), payload);
+            sendEvent(event);
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        final List<AirqEvent<GiosMeasurementEventPayload>> created = eventsList
+                .stream()
+                .filter(event -> event.eventType().equals(GiosMeasurementCreatedEvent.class.getSimpleName()))
+                .collect(Collectors.toUnmodifiableList());
+        final List<AirqEvent<GiosMeasurementEventPayload>> updated = eventsList
+                .stream()
+                .filter(event -> event.eventType().equals(GiosMeasurementUpdatedEvent.class.getSimpleName()))
+                .collect(Collectors.toUnmodifiableList());
+
+        assertThat(created).hasSize(1);
+        assertThat(updated).hasSizeBetween(1, 11);
+    }
+
     private AirqEvent<GiosMeasurementEventPayload> awaitForLatestEvent(TSKey key, Duration maxAwait) {
-        await().atMost(Duration.ofSeconds(5)).until(() -> events.containsKey(key));
+        await().atMost(Duration.ofSeconds(5)).until(() -> eventsMap.containsKey(key));
         try {
             Thread.sleep(maxAwait.toMillis());
         } catch (InterruptedException ignore) {
         }
-        return events.get(key);
+        return eventsMap.get(key);
     }
 
     private void verifyGiosMeasurementEvent(AirqEvent<GiosMeasurementEventPayload> event,

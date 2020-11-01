@@ -19,7 +19,6 @@ quarkus:
       - gios.installation
       - gios.measurement
 
-
 kafka-streams:
   cache:
     max:
@@ -42,3 +41,13 @@ kafka-streams:
   heartbeat:
     interval:
       ms: 200
+
+"%test":
+  gios:
+    topology:
+      retention-period:
+        amount: 10
+        time-unit: SECONDS
+      window-size:
+        amount: 10
+        time-unit: SECONDS

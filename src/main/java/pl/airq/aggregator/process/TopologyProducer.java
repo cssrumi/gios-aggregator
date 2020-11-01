@@ -10,7 +10,9 @@ import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
+import org.apache.kafka.streams.kstream.TimeWindows;
 import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.streams.state.WindowBytesStoreSupplier;
 import pl.airq.aggregator.config.GiosAggregatorProperties;
@@ -44,7 +46,6 @@ public class TopologyProducer {
         this.measurementTopic = properties.getMeasurementTopic();
         this.giosMeasurementStore = properties.getMeasurementStore();
     }
-
 
     @Produces
     public Topology buildTopology(EventParser parser) {
