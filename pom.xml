@@ -11,6 +11,13 @@
         <version>1.4</version>
     </parent>
 
+    <scm>
+        <developerConnection>scm:git:https://github.com/cssrumi/gios-aggregator.git</developerConnection>
+        <connection>scm:git:https://github.com/cssrumi/gios-aggregator.git</connection>
+        <url>https://github.com/cssrumi/gios-aggregator.git</url>
+        <tag>HEAD</tag>
+    </scm>
+
     <properties>
         <common.version>1.12</common.version>
     </properties>
@@ -65,8 +72,4 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-
-  <scm>
-    <tag>gios-aggregator-1.0.0</tag>
-  </scm>
 </project>
