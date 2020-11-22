@@ -1,5 +1,6 @@
 package pl.airq.aggregator.serde;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.streams.errors.DeserializationExceptionHandler;
@@ -7,6 +8,7 @@ import org.apache.kafka.streams.processor.ProcessorContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@RegisterForReflection
 public class DeserializationErrorHandler implements DeserializationExceptionHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(DeserializationErrorHandler.class);
 

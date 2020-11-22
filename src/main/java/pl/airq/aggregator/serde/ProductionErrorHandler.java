@@ -1,11 +1,13 @@
 package pl.airq.aggregator.serde;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import java.util.Map;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.streams.errors.ProductionExceptionHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@RegisterForReflection
 public class ProductionErrorHandler implements ProductionExceptionHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(ProductionErrorHandler.class);
 
